@@ -2,6 +2,7 @@
 const XLSX = require('xlsx');
 
 const DAY_WORDS = [['ראשון', 'א', 'sun', 'sunday'], ['שני', 'ב', 'mon', 'monday'], ['שלישי', 'ג', 'tue', 'tuesday'], ['רביעי', 'ד', 'wed', 'wednesday'], ['חמישי', 'ה', 'thu', 'thursday']];
+const keepNl = (s) => String(s == null ? '' : s).replace(/[‎‏‪-‮]/g, '').split(/\r?\n/).map((x) => x.replace(/[ \t]+/g, ' ').trim()).filter(Boolean).join('\n');
 const clean = (s) => String(s == null ? '' : s).replace(/[‎‏‪-‮]/g, '').replace(/\s+/g, ' ').trim();
 const normCls = (s) => clean(s).replace(/[׳'`´’"״]/g, '').replace(/\s+/g, '').toLowerCase();
 
@@ -48,7 +49,7 @@ function xlsxToGrid(buf) {
   const wb = XLSX.read(buf, { type: 'buffer' });
   let best = [];
   for (const n of wb.SheetNames) {
-    const g = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: false, defval: '', blankrows: false }).map((r) => r.map(clean));
+    const g = XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: false, defval: '', blankrows: true }).map((r) => r.map(keepNl));
     if (g.length > best.length) best = g;
   }
   return best;
@@ -78,6 +79,17 @@ function parseCell(cell) {
 }
 function transpose(g) { const w = Math.max(...g.map((r) => r.length)); return Array.from({ length: w }, (_, c) => g.map((r) => r[c] || '')); }
 
+// תא רב-שורתי (ייצוא מערכת מורה): שורה 1 מקצוע, שורה 2 כיתות, שורה 3 מקום
+function multiLineCell(cell) {
+  const lines = String(cell || '').split(/\n/).map((x) => clean(x).replace(/"/g, '״').replace(/``/g, '״')).filter(Boolean);
+  if (lines.length < 2) return null;
+  const isCls = (x) => /(^|\s)(ז|ח|ט|י|יא|יב|י״א|י״ב|ז׳|ח׳|ט׳|י׳)[׳'״]?\s*\d*/.test(x) && x.length < 40;
+  let cls = '', place = '';
+  if (lines.length >= 3) { cls = lines[1]; place = lines.slice(2).join(' '); }
+  else if (isCls(lines[1])) cls = lines[1]; else place = lines[1];
+  return { class_name: cls, place, subject: lines[0] };
+}
+
 function parseGrid(grid0) {
   let grid = grid0.filter((r) => r.some((c) => c));
   if (!grid.length) return { rows: [], layout: 'empty' };
@@ -96,7 +108,13 @@ function parseGrid(grid0) {
     const dayCols = head.map((c, i) => ({ i, d: /^[0-4]$/.test(clean(c)) ? -1 : dayOf(c) })).filter((x) => x.d >= 0);
     const rows = [];
     const firstDayCol = Math.min(...dayCols.map((x) => x.i));
-    for (const r of grid.slice(hi + 1)) {
+    const rawHi = grid0.findIndex((r) => r.filter((c) => dayOf(c) >= 0 && !/^[0-4]$/.test(clean(c))).length >= 2);
+    const hasLabels = grid.slice(hi + 1).some((r) => r.slice(0, firstDayCol).some((c) => clean(c)));
+    const positional = !hasLabels && rawHi >= 0;
+    let pos = 0;
+    for (const r of (positional ? grid0.slice(rawHi + 1) : grid.slice(hi + 1))) {
+      pos++;
+      if (positional && !r.some((c) => clean(c))) continue;
       const lead = r.slice(0, firstDayCol).concat(r.length > Math.max(...dayCols.map((x) => x.i)) + 1 ? r.slice(Math.max(...dayCols.map((x) => x.i)) + 1) : []);
       let period = null, tr = null;
       for (const c of lead) {
@@ -105,9 +123,12 @@ function parseGrid(grid0) {
         else { const m = clean(c).match(/^(?:שיעור\s*|שעה\s*)?(\d{1,2})\.?$/); if (m && period == null) period = Number(m[1]); }
       }
       if (!tr) { const st = lead.map(oneTime).filter(Boolean); if (st.length >= 2) tr = { start: st[0], end: st[1] }; }
-      if (period == null && !tr) continue;
+      if (period == null && !tr && !positional) continue;
+      if (positional && period == null) period = pos - 1;
       if (period == null) period = rows.length ? Math.max(...rows.map((x) => x.period)) + 1 : 1;
       for (const { i, d } of dayCols) {
+        const ml = multiLineCell(r[i]);
+        if (ml) { rows.push({ day: d, period, start: tr ? tr.start : '', end: tr ? tr.end : '', class_name: ml.class_name, place: ml.place, note: ml.subject }); continue; }
         for (const part of String(r[i] || '').split(/\n|;/)) {
           const pc = parseCell(part); if (!pc) continue;
           rows.push({ day: d, period, start: tr ? tr.start : '', end: tr ? tr.end : '', ...pc });
