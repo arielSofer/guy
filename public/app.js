@@ -122,7 +122,24 @@ routes.class = async ([id]) => {
   $('#sq').oninput = (e) => { S.studentQ = e.target.value; clearTimeout(S.sqT); S.sqT = setTimeout(() => routes.class([id]).then(() => { const i = $('#sq'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }), 250); };
   $$('[data-st]').forEach((e) => (e.onclick = () => (location.hash = '#/student/' + e.dataset.st)));
   $('#addSt').onclick = () => { const m = modal(`<h3>תלמיד חדש</h3><label for="sn">שם</label><input id="sn"><label for="sh">כיתת אם</label><input id="sh"><button class="pri big" id="ss" style="margin-top:14px">שמירה</button>`); $('#ss', m).onclick = guard(async () => { await post('/api/students', { class_id: +id, name: $('#sn', m).value, home_class: $('#sh', m).value }); m.remove(); toast('נוסף'); routes.class([id]); }); };
-  $('#imp').onclick = () => { const m = modal(`<h3>ייבוא תלמידים</h3><p class="sub">שם בכל שורה (CSV – העמודה הראשונה)</p><textarea id="it"></textarea><button class="pri big" id="is" style="margin-top:14px">ייבוא</button>`); $('#is', m).onclick = guard(async () => { const r = await post(`/api/classes/${id}/import`, { text: $('#it', m).value }); m.remove(); toast(`נוספו ${r.added}, דולגו ${r.skipped}`); routes.class([id]); }); };
+  $('#imp').onclick = () => { const m = modal(`<h3>ייבוא תלמידים</h3><p class="sub">העלה קובץ CSV / Excel, או הדבק שם בכל שורה (אפשר עמודה שנייה: כיתת אם)</p>
+    <label class="btn" for="ifile" style="width:100%;margin-bottom:8px">בחירת קובץ (CSV / Excel / TXT)</label><input id="ifile" type="file" accept=".csv,.txt,.xlsx,.xls,text/csv" style="display:none">
+    <div class="sub" id="ifn"></div><textarea id="it" placeholder="אבי לוי&#10;בן כהן"></textarea><div class="sub" id="icnt"></div><button class="pri big" id="is" style="margin-top:14px">ייבוא</button>`);
+    const cnt = () => { const n = $('#it', m).value.split(/\r?\n/).filter((l) => l.trim()).length; $('#icnt', m).textContent = n ? `${n} שורות לייבוא` : ''; };
+    $('#it', m).oninput = cnt;
+    $('#ifile', m).onchange = guard(async (e) => {
+      const f = e.target.files[0]; if (!f) return; $('#ifn', m).textContent = f.name;
+      if (/\.xlsx?$/i.test(f.name)) {
+        const b64 = btoa(new Uint8Array(await f.arrayBuffer()).reduce((s, x) => s + String.fromCharCode(x), ''));
+        $('#it', m).value = (await post('/api/parse-sheet', { name: f.name, data_base64: b64 })).text;
+      } else {
+        const buf = await f.arrayBuffer(); let t = new TextDecoder('utf-8').decode(buf);
+        if (t.includes('\ufffd')) t = new TextDecoder('windows-1255').decode(buf); // קבצי CSV ישנים מ‑Excel בעברית
+        $('#it', m).value = t.replace(/^\ufeff/, '');
+      }
+      cnt();
+    });
+    $('#is', m).onclick = guard(async () => { const r = await post(`/api/classes/${id}/import`, { text: $('#it', m).value }); m.remove(); toast(`נוספו ${r.added}, דולגו ${r.skipped}`); routes.class([id]); }); };
 };
 routes.student = async ([id]) => {
   const s = await get('/api/students/' + id);

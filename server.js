@@ -155,11 +155,18 @@ R('POST', '/api/students', (c) => {
 });
 R('POST', '/api/classes/:id/import', (c) => {
   classOf(c.u, c.p.id);
-  const names = String(c.body.text || '').split(/\r?\n/).map((l) => l.split(',').map((x) => x.trim())).filter((r) => r[0]);
+  let names = String(c.body.text || '').replace(/^\ufeff/, '').split(/\r?\n/).map((l) => l.split(/[,;\t]/).map((x) => x.trim().replace(/^"|"$/g, ''))).filter((r) => r[0]);
+  if (names.length && /^(שם|שם תלמיד|שם התלמיד|name)$/i.test(names[0][0])) names = names.slice(1); // שורת כותרת
   const seen = new Set(all('SELECT name FROM students WHERE class_id=?', c.p.id).map((s) => s.name));
   let added = 0;
   for (const [n, home] of names) if (!seen.has(n)) { run('INSERT INTO students(school_id,class_id,name,home_class) VALUES(?,?,?,?)', c.u.school_id, c.p.id, n, home || ''); seen.add(n); added++; }
   return { added, skipped: names.length - added };
+});
+R('POST', '/api/parse-sheet', (c) => { // Excel → טקסט CSV לתצוגה מקדימה
+  const XLSX = require('xlsx');
+  let wb; try { wb = XLSX.read(Buffer.from(String(c.body.data_base64 || ''), 'base64'), { type: 'buffer' }); } catch { throw new HttpErr(400, 'לא ניתן לקרוא את הקובץ'); }
+  const ws = wb.Sheets[wb.SheetNames[0]]; if (!ws) throw new HttpErr(400, 'הקובץ ריק');
+  return { text: XLSX.utils.sheet_to_csv(ws, { FS: ',', blankrows: false }) };
 });
 R('GET', '/api/students/:id', (c) => {
   const s = studentOf(c.u, c.p.id);
