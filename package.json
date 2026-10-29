@@ -1,0 +1,1 @@
+{"name":"pe-journal","version":"1.0.0","private":true,"scripts":{"start":"node server.js"},"engines":{"node":">=24"},"dependencies":{"pdf-parse":"1.1.1","xlsx":"0.18.5"}}

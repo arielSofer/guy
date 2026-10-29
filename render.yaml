@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: pe-journal
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: node server.js
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: 24
+      - key: DB_FILE
+        value: /var/data/data.db
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: SEED_USERS
+        sync: false
