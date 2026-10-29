@@ -75,7 +75,6 @@
       <label for="imfile">קובץ</label><input type="file" id="imfile" accept=".xlsx,.xls,.csv,.pdf,.txt">
       <label for="imtext">או הדבקת טקסט</label><textarea id="imtext" placeholder="יום,שיעור,התחלה,סיום,כיתה,מקום"></textarea>
       <div id="impv" style="margin-top:8px"></div>
-      <button class="big" id="imprev" style="margin-top:8px">תצוגה מקדימה</button>
       <button class="pri big" id="imcommit" style="margin-top:8px" disabled>אישור ושמירה</button>
       <button class="big" id="imclose" style="margin-top:8px">סגירה</button>`);
     let rows = [];
@@ -84,7 +83,7 @@
       rows = r.preview;
       const opts = (row) => `<option value="">ללא כיתה</option>` + (row.suggestions.length ? row.suggestions : r.classes).map((k) => `<option value="${k.id}">${esc(k.name)}</option>`).join('');
       $('#impv', m).innerHTML = `<p id="imsum">${rows.length} שיעורים בקובץ${r.conflicts ? ` · ${r.conflicts} ידולגו` : ''}${r.warnings ? ` · ${r.warnings} עם אזהרות` : ''}</p>` +
-        rows.map((p, i) => `<div class="card imrow" data-i="${i}" style="${p.conflict ? 'opacity:.55' : ''}"><b>יום ${DAYN[p.day]} · שיעור ${p.period || '?'}</b> · ${esc(p.start)}–${esc(p.end)}<div class="sub">${esc(p.class_name || '—')}${p.place ? ' · ' + esc(p.place) : ''}</div>` +
+        rows.map((p, i) => `<div class="card imrow" data-i="${i}" style="${p.conflict ? 'opacity:.55' : ''}"><b>יום ${DAYN[p.day]} · שיעור ${p.period ?? '?'}</b> · ${esc(p.start)}–${esc(p.end)}<div class="sub">${esc(p.class_name || '—')}${p.place ? ' · ' + esc(p.place) : ''}</div>` +
           (p.class_name && !p.class_id ? `<select class="imcls" aria-label="התאמת כיתה">${opts(p)}</select>` : '') +
           p.warnings.map((w) => `<div class="sub imwarn" style="color:#b45309">⚠ ${esc(w)}</div>`).join('') + '</div>').join('');
       m.querySelectorAll('.imcls').forEach((s) => (s.onchange = () => { rows[+s.closest('.imrow').dataset.i].class_id = s.value ? +s.value : null; }));
@@ -96,7 +95,10 @@
       if (t) return { text: t };
       throw new Error('בחרו קובץ או הדביקו טקסט');
     };
-    $('#imprev', m).onclick = guard(async () => { render(await post('/api/schedule/import-file', await payload())); });
+    // תצוגה מקדימה אוטומטית: מיד עם בחירת קובץ או הדבקת טקסט
+    const preview = guard(async () => { render(await post('/api/schedule/import-file', await payload())); });
+    $('#imfile', m).onchange = preview;
+    let tm; $('#imtext', m).oninput = () => { clearTimeout(tm); tm = setTimeout(() => { if ($('#imtext', m).value.trim() && !$('#imfile', m).files[0]) preview(); }, 500); };
     $('#imcommit', m).onclick = guard(async () => {
       const r = await post('/api/schedule/import-file', { rows: rows.map(({ day, period, start, end, class_name, place, class_id }) => ({ day, period, start, end, class_name, place, class_id })), commit: true });
       m.remove(); toast(`יובאו ${r.imported}` + (r.skipped ? `, דולגו ${r.skipped}` : '')); reload();

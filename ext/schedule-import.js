@@ -22,6 +22,7 @@ function timeRange(s) {
 }
 function oneTime(s) { const m = clean(s).match(/^(\d{1,2})[:.](\d{2})(?::\d{2})?$/); return m ? normTime(m[1], m[2]) : null; }
 function addMin(hm, min) { const [h, m] = hm.split(':').map(Number); const t = h * 60 + m + min; return pad(Math.floor(t / 60) % 24) + ':' + pad(t % 60); }
+const hasP = (p) => p !== null && p !== undefined && p !== '' && Number.isFinite(Number(p)) && Number(p) >= 0; // שיעור 0 תקין
 function defaultTimes(p) { const start = addMin('08:00', (p - 1) * 55); return { start, end: addMin(start, 45) }; }
 
 // ---------- המרת קבצים לטבלה דו-ממדית ----------
@@ -151,7 +152,7 @@ function parseGrid(grid0) {
     let start = g('start'), end = g('end');
     const tr = timeRange(start) || timeRange(g('period'));
     if (tr) { start = tr.start; end = tr.end; } else { start = oneTime(start) || start; end = oneTime(end) || end; }
-    const p = Number(g('period').replace(/\D/g, '')) || 0;
+    const pd = g('period').replace(/\D/g, ''); const p = pd === '' ? null : Number(pd);
     rows.push({ day: d, period: p, start, end, class_name: g('class_name'), place: g('place') });
   }
   return { rows, layout: hasHeader ? 'flat' : 'flat-noheader' };
@@ -163,9 +164,9 @@ function enrich(rows, classes, existing) {
   const seen = new Set();
   return rows.map((r) => {
     const w = []; const o = { ...r, warnings: w };
-    if (!o.period) { w.push('חסר מספר שיעור'); }
+    if (!hasP(o.period)) { w.push('חסר מספר שיעור'); }
     if (!o.start || !o.end) {
-      if (o.period) { const t = defaultTimes(o.period); o.start = o.start || t.start; o.end = o.end || t.end; w.push('שעות לא צוינו, הוגדרו אוטומטית'); }
+      if (hasP(o.period)) { const t = defaultTimes(o.period); o.start = o.start || t.start; o.end = o.end || t.end; w.push('שעות לא צוינו, הוגדרו אוטומטית'); }
       else w.push('חסרות שעות');
     }
     if (o.start && o.end && o.start >= o.end) w.push('שעת סיום לפני שעת התחלה');
@@ -180,7 +181,7 @@ function enrich(rows, classes, existing) {
       }
     }
     const key = o.day + '|' + o.period;
-    if (o.period && existing.has(key)) { o.conflict = true; w.push('קיים כבר שיעור בשעה זו – ידולג'); }
+    if (hasP(o.period) && existing.has(key)) { o.conflict = true; w.push('קיים כבר שיעור בשעה זו – ידולג'); }
     else if (seen.has(key)) { o.conflict = true; w.push('כפילות בקובץ – ידולג'); }
     seen.add(key);
     return o;
@@ -210,7 +211,7 @@ module.exports = (api) => {
     const existing = new Set(all('SELECT day,period FROM lessons_sched WHERE teacher_id=?', c.u.id).map((l) => l.day + '|' + l.period));
     let rows, layout = 'client';
     if (grid) { ({ rows, layout } = parseGrid(grid)); if (!rows.length) throw new HttpErr(400, 'לא זוהו שיעורים בקובץ. ודאו שיש עמודות/שורות של ימים (ראשון–חמישי) ושיעורים.'); }
-    else rows = b.rows.map((r) => ({ day: Number(r.day), period: Number(r.period), start: String(r.start || ''), end: String(r.end || ''), class_name: String(r.class_name || ''), place: String(r.place || ''), class_id: r.class_id || null }));
+    else rows = b.rows.map((r) => ({ day: Number(r.day), period: hasP(r.period) ? Number(r.period) : null, start: String(r.start || ''), end: String(r.end || ''), class_name: String(r.class_name || ''), place: String(r.place || ''), class_id: r.class_id || null }));
     const bad = rows.find((r) => !(r.day >= 0 && r.day <= 4));
     if (bad) throw new HttpErr(400, 'יום לא תקין בשורה');
 
@@ -225,7 +226,7 @@ module.exports = (api) => {
       const p = prepared[i];
       const cid = rows[i].class_id || p.class_id || null;
       if (cid) classOf(c.u, cid);
-      if (p.conflict || !p.period || !p.start || !p.end || p.start >= p.end) { skipped++; continue; }
+      if (p.conflict || !hasP(p.period) || !p.start || !p.end || p.start >= p.end) { skipped++; continue; }
       if (one('SELECT 1 x FROM lessons_sched WHERE teacher_id=? AND day=? AND period=?', c.u.id, p.day, p.period)) { skipped++; continue; }
       run('INSERT INTO lessons_sched(school_id,teacher_id,day,period,start,end,class_id,place) VALUES(?,?,?,?,?,?,?,?)', c.u.school_id, c.u.id, p.day, p.period, p.start, p.end, cid, p.place || '');
       imported++;
